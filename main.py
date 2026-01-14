@@ -13,7 +13,7 @@ logging.basicConfig(
 # --- Загрузка переменных окружения ---
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-AVATAR_URL = os.getenv("AVATAR_URL", "https://imgur.com/a/SpL02aN.gif")  # белый милый котёнок
+AVATAR_URL = os.getenv("AVATAR_URL", "https://github.com/alekseignatovich-sketch/ai-telegram-bot/blob/7d9efe625d6ee5ae832043182034d6b6d294ecec/kitten.gif")  # белый милый котёнок
 
 # Проверка обязательных токенов
 if not TELEGRAM_TOKEN or not GROQ_API_KEY:
