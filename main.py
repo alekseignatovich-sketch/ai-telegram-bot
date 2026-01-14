@@ -1,26 +1,32 @@
 import os
 import logging
-from telegram import Update, InputMediaPhoto
+from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from groq import Groq
 
-# --- Настройка логов ---
-logging.basicConfig(level=logging.INFO)
+# --- Настройка логирования ---
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
 
-# --- Получаем токены из переменных окружения ---
+# --- Загрузка переменных окружения ---
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-AVATAR_URL = os.getenv("AVATAR_URL", "https://i.imgur.com/7KJv6nD.png")  # милый котёнок по умолчанию
+AVATAR_URL = os.getenv("AVATAR_URL", "https://i.imgur.com/7KJv6nD.png")  # белый милый котёнок
 
-# --- Инициализация Groq ---
+# Проверка обязательных токенов
+if not TELEGRAM_TOKEN or not GROQ_API_KEY:
+    raise ValueError("❌ Отсутствуют TELEGRAM_TOKEN или GROQ_API_KEY в переменных окружения!")
+
+# --- Инициализация Groq-клиента ---
 client = Groq(api_key=GROQ_API_KEY)
 
-# --- Словарь для хранения языка пользователя ---
+# --- Хранилище языков пользователей (в памяти; для продакшена можно добавить Redis/SQLite) ---
 user_language = {}
 
 # --- Команда /start ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
     welcome_text = (
         "👋 Привет! Я — ваш AI-помощник с милым котёнком!\n\n"
         "Пожалуйста, выберите язык:\n"
@@ -34,8 +40,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def set_lang(update: Update, context: ContextTypes.DEFAULT_TYPE, lang_code: str, lang_name: str):
     user_id = update.effective_user.id
     user_language[user_id] = lang_code
-    confirm_msg = f"✅ Выбран язык: {lang_name}"
-    await update.message.reply_photo(photo=AVATAR_URL, caption=confirm_msg)
+    await update.message.reply_photo(
+        photo=AVATAR_URL,
+        caption=f"✅ Выбран язык: {lang_name}"
+    )
 
 async def cmd_ru(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await set_lang(update, context, "ru", "Русский")
@@ -46,7 +54,7 @@ async def cmd_en(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_es(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await set_lang(update, context, "es", "Español")
 
-# --- Определение языка для промпта ---
+# --- Системные промпты по языкам ---
 def get_system_prompt(lang_code: str) -> str:
     prompts = {
         "ru": "Ты дружелюбный, умный и полезный помощник. Отвечай кратко, чётко и с эмодзи. Ты — милый котёнок 🐾.",
@@ -55,16 +63,14 @@ def get_system_prompt(lang_code: str) -> str:
     }
     return prompts.get(lang_code, prompts["en"])
 
-# --- Обработка сообщений ---
+# --- Обработка текстовых сообщений ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    user_msg = update.message.text
-
-    # Если язык не выбран — напомнить
     if user_id not in user_language:
         await update.message.reply_text("Пожалуйста, сначала выберите язык: /ru, /en или /es")
         return
 
+    user_msg = update.message.text
     lang = user_language[user_id]
     system_prompt = get_system_prompt(lang)
 
@@ -74,30 +80,32 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_msg}
             ],
-            model="llama-3.1-70b-versatile",  # мощная и бесплатная модель
+            model="llama-3.1-70b-versatile",
             max_tokens=500,
-            temperature=0.7
+            temperature=0.7,
+            timeout=30
         )
         ai_response = chat_completion.choices[0].message.content.strip()
     except Exception as e:
         logging.error(f"Ошибка Groq: {e}")
         ai_response = "😿 Извините, сейчас не могу ответить. Попробуйте позже."
 
-    # Отправляем ответ с аватаром
     await update.message.reply_photo(photo=AVATAR_URL, caption=ai_response)
 
-# --- Запуск бота ---
+# --- Основная функция запуска ---
 def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
 
+    # Регистрация обработчиков
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("ru", cmd_ru))
     app.add_handler(CommandHandler("en", cmd_en))
     app.add_handler(CommandHandler("es", cmd_es))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    logging.info("Бот запущен!")
+    logging.info("✅ Бот запущен и ожидает сообщения...")
     app.run_polling()
 
+# --- Точка входа ---
 if __name__ == "__main__":
     main()
